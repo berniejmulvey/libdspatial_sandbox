@@ -1,0 +1,34 @@
+---
+title: "chapters8-11"
+author: "Bernie Mulvey"
+date: "2023-04-19"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(data.table)
+library(SpatialExperiment)
+# library(STexampleData)
+```
+
+## look at components of an spe obj
+```{r}
+spe <- Visium_humanDLPFC()
+# eh i kinda would prefer to look at something with multiple samples
+# rm(spe)
+# unloadNamespace(STexampleData)
+
+library(WeberDivechaLCdata)
+## oh lord have to update R and bioconductor and everything bbl
+```
+
+# OK let's see what a dataset (multiple samples) looks like.
+```{r}
+splc <- WeberDivechaLCdata_Visium()
+dim(splc)
+head(colData(splc))
+tail(colData(splc))
+# ah ok so there's just columns for each sample strung together.
+```
+
+### Ch9: QC / filtering
