@@ -8,6 +8,8 @@ output: html_document
 ```{r setup, include=FALSE}
 library(data.table)
 library(SpatialExperiment)
+library(ggspavis)
+library(scater) # addPerCellQC
 # library(STexampleData)
 ```
 
@@ -32,3 +34,40 @@ tail(colData(splc))
 ```
 
 ### Ch9: QC / filtering
+1. Is the tissue oriented correctly?
+```{r}
+ggspavis::plotSpots(splc)
+# well, these are all distinct sections, so that's a good enough start
+
+# we would do this to get rid of non-tissue spots, but that's already been done here. let's double check that there's no non-tissue spots remaining though
+sum(colData(splc)$in_tissue!=1,na.rm=T)
+# qed
+
+dim(splc)
+# and which is why we have a number of spots (20380) not divisible by 8
+
+```
+
+2. Mitochondrial reads--which were actually not used as a filter for the LC data so we can actually apply this step. Get a vector of features and whether or not they're mitochondrial
+```{r}
+# data.table derived style (won't work)
+mitogenes <- rowData(splc[rowData(splc)$gene_name %in% grep(rowData(splc)$gene_name,pattern="MT-|mt-",value=T)])$gene_name
+
+# WILL work:
+mitogenes <- rowData(splc)$gene_name %in% grep(rowData(splc)$gene_name,pattern="MT-|mt-",value=T)
+
+# or as coded in the tutorial
+is_mito <- grepl("(^MT-)|(^mt-)", rowData(splc)$gene_name)
+rowData(splc)$gene_name[is_mito]
+
+```
+
+
+#### now the next step, totalling reads per spot might need a vector of length nrow to work. let's find out.
+```{r}
+# working from the vector of mito gene symbols
+splc <- addPerCellQC(splc,subsets=list(Mito=is_mito))
+# these data now are in our coldata ('sample'/'cell' data)
+
+
+```
