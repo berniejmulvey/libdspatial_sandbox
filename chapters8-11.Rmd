@@ -51,12 +51,17 @@ dim(splc)
 2. Mitochondrial reads--which were actually not used as a filter for the LC data so we can actually apply this step. Get a vector of features and whether or not they're mitochondrial
 ```{r}
 # data.table derived style (won't work)
-mitogenes <- rowData(splc[rowData(splc)$gene_name %in% grep(rowData(splc)$gene_name,pattern="MT-|mt-",value=T)])$gene_name
+# mitogenes <- rowData(splc[rowData(splc)$gene_name %in% grep(rowData(splc)$gene_name,pattern="MT-|mt-",value=T)])$gene_name
 
-# WILL work:
+# also WONT work-vector of gene names to include
+mitogenesymbs <- grep(rowData(splc)$gene_name,pattern="MT-|mt-",value=T)
+
+
+## these WILL work:
+#1. full-length vector of T/F for matching MT-.*
 mitogenes <- rowData(splc)$gene_name %in% grep(rowData(splc)$gene_name,pattern="MT-|mt-",value=T)
 
-# or as coded in the tutorial
+# 2. as coded in the tutorial
 is_mito <- grepl("(^MT-)|(^mt-)", rowData(splc)$gene_name)
 rowData(splc)$gene_name[is_mito]
 
@@ -66,8 +71,34 @@ rowData(splc)$gene_name[is_mito]
 #### now the next step, totalling reads per spot might need a vector of length nrow to work. let's find out.
 ```{r}
 # working from the vector of mito gene symbols
-splc <- addPerCellQC(splc,subsets=list(Mito=is_mito))
+splc2 <- addPerCellQC(splc,subsets=list(Mito=is_mito))
+# as expected
+splc3 <- addPerCellQC(splc,subsets=list(Mito=mitogenesymbs))
+# THAT doesn't work though--expects indices
+rm(splc2,mitogenesymbs,is_mito)
+
+
 # these data now are in our coldata ('sample'/'cell' data)
+colData(splc)$subsets_Mito_percent
+sum(colData(splc)$subsets_Mito_percent>20)
+# ouch
+```
+
+plot some qc stats
+### coldata()$sum represents # of UMIs per spot
+### standard threshold is 600 UMIs
+```{r}
+ggplot(as.data.frame(colData(splc)),aes(x=sum))+
+  geom_histogram(binwidth = 600)
+
+# again, ouch
+```
+
+### also look at sum PER # cells per spot. using ggspavis::plotQC. set threshold_y to the value we might plan to use--this function will draw on a horiz line to show what would be getting clipped off
+
+### oh, LC data doesn't have this (but those values would usually be there from VistoSeg)
+```{r}
+# plotQC(splc,type = "scatter",metric_x = "cell_count",metric_y ="sum",threshold_y = 600)
 
 
 ```
