@@ -7,8 +7,6 @@ output: html_document
 
 ```{r setup, include=FALSE}
 library(data.table)
-library(colorout)
-colorout::ColorOut()
 library(SpatialExperiment)
 library(ggspavis)
 library(scater) # addPerCellQC
@@ -89,15 +87,17 @@ rm(splc3, splc4, mitogenesymbs, is_mito)
 # these data now are in our coldata ('sample'/'cell' data)
 colData(splc2)$subsets_Mito_percent
 sum(colData(splc2)$subsets_Mito_percent > 20)
-# ouch
+# ouch. let's call our cutoff 50%.
+colData(splc2)$excessmito <- colData(splc2)$subsets_Mito_percent>50
 ```
 
 plot some qc stats
 ### coldata()$sum represents # of UMIs per spot
 ### standard threshold is 600 UMIs
 ```{r}
-ggplot(as.data.frame(colData(splc)), aes(x = sum)) +
-    geom_histogram(binwidth = 600)
+ggplot(as.data.frame(colData(splc))[which(as.data.frame(colData(splc))$sum<10000),], aes(x = sum)) +
+    geom_histogram(binwidth = 100)+
+  geom_vline(xintercept = 600,col="red")
 dev.off()
 # again, ouch
 ```
@@ -112,7 +112,7 @@ dev.off()
 # hist(colData(splc)$cell_count,breaks = 20)
 
 ###  der no we want a neg binom? gamma? dist for these fake values
-coldat.tmp <- as.data.table(colData(splc))
+coldat.tmp <- as.data.table(colData(splc2))
 # coldat.tmp[,cell_count:=]
 # n = number of spots per sample
 coldat.tmp[, cell_count := sample(
@@ -129,7 +129,7 @@ colData(splc2) <- DataFrame(coldat.tmp)
 
 # so anyhow, we would look at counts per spot as a function of cells per spot like this
 ```{r}
-plotQC(splc2,type = "scatter",metric_x = "cell_count",metric_y ="detected",threshold_x = 10)
+plotQC(splc2,type = "scatter",metric_x = "cell_count",metric_y ="sum",threshold_y = 600)
 
 # as before, if we wanted to flag spots with more than 10 cells for exclusion (e.g., if that seems to be where the number of genes per spot dives off), then we add a new column to coldata as T/F:
 colData(splc2)$overtencells <- colData(splc2)$cell_count>10
@@ -141,4 +141,36 @@ plotSpots(splc2,annotate = "overtencells")
 # and our randomlly generated values are randomly assorted. v good v good. so if this is what real cell count data looked like, we'd be ok to eventually throw those spots
 ```
 
-### 9.5.2: filtering for number of genes detected 
+### 9.5.2: filtering for number of genes detected (coldata(spe)$detected)
+```{r}
+# again, we want a histogram and then a plotqc to examine the # cells relationship
+hist(colData(splc2)$detected)
+# let's look first, then plot again with some estimated threshold out a threshold estimate
+plotQC(splc2,type = "scatter",metric_y= "detected",metric_x = "cell_count")
+# sine there are ~0 gene-detected spots across the (fake) cell count let's try  1750 and see what that trendline looks like
+dtct1750 <- colData(splc2)$detected<1750
+colData(splc2)$dtct1750 <- dtct1750 
+splc3 <- splc2[,dtct1750==F]
+# naw, naw let's try 200
+dtct200 <- colData(splc2)$detected<200
+colData(splc2)$dtct200 <- dtct200
+splc3 <- splc2[,dtct200==F]
+plotQC(splc3,type = "scatter",metric_y= "detected",metric_x = "cell_count",threshold_y = 200)
+
+# visualize to check for (biological) spatial pattern
+plotSpots(splc2,annotate = "dtct200")
+## looks like this partially tracks with ventricles? (e.g. 2701 right hand piece) but otherwise tissue edges, which would not represent anything biological here.
+```
+
+# we worked out of order and already did mitochondrial reads. so
+```{r}
+colSums(as.data.frame(colData(splc2)[,c("dtct200","excessmito","overtencells")]))
+# so 9822 dropped for low gene detection, 3088 dropped for mitochondria, and 2523 hypothetically dropped for too many cells
+
+toss <- dtct200 | colData(splc2)$excessmito
+splc2 <- splc2[,toss==F]
+# what's left?
+dim(splc2)
+# about 40% of the data.
+
+```
