@@ -7,6 +7,8 @@ output: html_document
 
 ```{r setup, include=FALSE}
 library(data.table)
+library(colorout)
+colorout::ColorOut()
 library(SpatialExperiment)
 library(ggspavis)
 library(scater) # addPerCellQC
@@ -40,12 +42,11 @@ ggspavis::plotSpots(splc)
 # well, these are all distinct sections, so that's a good enough start
 
 # we would do this to get rid of non-tissue spots, but that's already been done here. let's double check that there's no non-tissue spots remaining though
-sum(colData(splc)$in_tissue!=1,na.rm=T)
+sum(colData(splc)$in_tissue != 1, na.rm = T)
 # qed
 
 dim(splc)
 # and which is why we have a number of spots (20380) not divisible by 8
-
 ```
 
 2. Mitochondrial reads--which were actually not used as a filter for the LC data so we can actually apply this step. Get a vector of features and whether or not they're mitochondrial
@@ -54,33 +55,40 @@ dim(splc)
 # mitogenes <- rowData(splc[rowData(splc)$gene_name %in% grep(rowData(splc)$gene_name,pattern="MT-|mt-",value=T)])$gene_name
 
 # also WONT work-vector of gene names to include
-mitogenesymbs <- grep(rowData(splc)$gene_name,pattern="MT-|mt-",value=T)
+mitogenesymbs <- grep(rowData(splc)$gene_name, pattern = "MT-|mt-", value = T)
 
 
 ## these WILL work:
-#1. full-length vector of T/F for matching MT-.*
-mitogenes <- rowData(splc)$gene_name %in% grep(rowData(splc)$gene_name,pattern="MT-|mt-",value=T)
+# 1. full-length vector of T/F for matching MT-.*
+mitogenes <- rowData(splc)$gene_name %in% grep(rowData(splc)$gene_name, pattern = "MT-|mt-", value = T)
 
 # 2. as coded in the tutorial
 is_mito <- grepl("(^MT-)|(^mt-)", rowData(splc)$gene_name)
 rowData(splc)$gene_name[is_mito]
-
 ```
 
 
 #### now the next step, totalling reads per spot might need a vector of length nrow to work. let's find out.
 ```{r}
-# working from the vector of mito gene symbols
-splc2 <- addPerCellQC(splc,subsets=list(Mito=is_mito))
+# working from the t/f vector for matching "MT-" (mitogenes)
+splc2 <- addPerCellQC(splc, subsets = list(Mito = mitogenes))
 # as expected
-splc3 <- addPerCellQC(splc,subsets=list(Mito=mitogenesymbs))
+
+# as coded in tutorial
+splc3 <- addPerCellQC(splc, subsets = list(mito = is_mito))
+
+
+stopifnot(sum(mitogenes == is_mito) == length(mitogenes))
+# ^ approaches are equiv.
+
+# splc4 <- addPerCellQC(splc,subsets=list(Mito=mitogenesymbs))
 # THAT doesn't work though--expects indices
-rm(splc2,mitogenesymbs,is_mito)
+rm(splc3, splc4, mitogenesymbs, is_mito)
 
 
 # these data now are in our coldata ('sample'/'cell' data)
-colData(splc)$subsets_Mito_percent
-sum(colData(splc)$subsets_Mito_percent>20)
+colData(splc2)$subsets_Mito_percent
+sum(colData(splc2)$subsets_Mito_percent > 20)
 # ouch
 ```
 
@@ -88,17 +96,49 @@ plot some qc stats
 ### coldata()$sum represents # of UMIs per spot
 ### standard threshold is 600 UMIs
 ```{r}
-ggplot(as.data.frame(colData(splc)),aes(x=sum))+
-  geom_histogram(binwidth = 600)
-
+ggplot(as.data.frame(colData(splc)), aes(x = sum)) +
+    geom_histogram(binwidth = 600)
+dev.off()
 # again, ouch
 ```
 
 ### also look at sum PER # cells per spot. using ggspavis::plotQC. set threshold_y to the value we might plan to use--this function will draw on a horiz line to show what would be getting clipped off
 
 ### oh, LC data doesn't have this (but those values would usually be there from VistoSeg)
+### we'll throw in some random values based on the dlpfc tutorial and just not actually filter on them at the end.
 ```{r}
 # plotQC(splc,type = "scatter",metric_x = "cell_count",metric_y ="sum",threshold_y = 600)
+# splc@colData$cell_count <- sample(x=c(1:7),size=nrow(splc@colData),replace = T)
+# hist(colData(splc)$cell_count,breaks = 20)
 
+###  der no we want a neg binom? gamma? dist for these fake values
+coldat.tmp <- as.data.table(colData(splc))
+# coldat.tmp[,cell_count:=]
+# n = number of spots per sample
+coldat.tmp[, cell_count := sample(
+    ceiling(rgamma(nrow(.SD),shape = 3,scale=2)),
+    size = nrow(.SD), replace = T
+), .SDcols = "sample_id"]
 
+hist(coldat.tmp$cell_count,breaks = 20)
+dev.off()
+### ok that looks decently like the dlpfc data. (not that this is really true for LC)
+
+colData(splc2) <- DataFrame(coldat.tmp)
 ```
+
+# so anyhow, we would look at counts per spot as a function of cells per spot like this
+```{r}
+plotQC(splc2,type = "scatter",metric_x = "cell_count",metric_y ="detected",threshold_x = 10)
+
+# as before, if we wanted to flag spots with more than 10 cells for exclusion (e.g., if that seems to be where the number of genes per spot dives off), then we add a new column to coldata as T/F:
+colData(splc2)$overtencells <- colData(splc2)$cell_count>10
+```
+
+### now, let's visually check that these spots with >10 cells are not all in one area of their tissue sections (which would indicate something biology-y happening)
+```{r}
+plotSpots(splc2,annotate = "overtencells")
+# and our randomlly generated values are randomly assorted. v good v good. so if this is what real cell count data looked like, we'd be ok to eventually throw those spots
+```
+
+### 9.5.2: filtering for number of genes detected 
