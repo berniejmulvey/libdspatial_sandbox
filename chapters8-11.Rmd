@@ -189,18 +189,57 @@ splc2 <- computeLibraryFactors(splc2)
 # peek
 summary(sizeFactors(splc2))
 hist(sizeFactors(splc2),breaks=100)
-saveRDS(splc2,"splc2_line192.RDS")
 # append log counts using scater (don't use the SpatialExpt:: function here, that's for RETRIEVING an assay by the name of "logcounts" from spe objs)
 splc2 <- scater::logNormCounts(splc2)
 # this is stored as a separate DF the ASSAYS component of the SpatialExpt obj
 names(splc2@assays)
 stopifnot(dim(counts(splc2))==dim(logcounts(splc2)))
 # o this was easy chap
-rm(toss,mitogenes,dtct200,dtct1750)
+rm(toss,dtct200,dtct1750)
 gc(full=T)
 dev.off()
+saveRDS(splc2,"splc2_line201.RDS")
 ```
 
 ###################
 ###### CH 11 ######
 ###################
+
+## FEATURE SELECTION
+### e.g., highly variable genes, spatially variable genes, etc
+
+##### scran - variable genes, (HVG), spatially agnostic
+##### OSTA verbatim: "If the biologically meaningful spatial information in this dataset mainly reflects spatial distributions of major cell types, then relying on HVGs for downstream analyses may be sufficient. But if there are additional important spatial features in the dataset, then it may be more meaningful to define spatially variable genes."
+```{r}
+# ordinarily, we exclude mitochondrial genes as not of interest. but the LC spatial preprint highlighted that LC neurons had very high mitochondrial reads, so what the hey, we'll keep them in here and just grab extra top HVGs to account for the fact that the 12 mito genes might take up some of the list.
+
+# splc2 <- splc2[!mitogenes]
+
+# first, we model gene-level mean-variance relationships
+splc2.vars <- modelGeneVar(splc2)
+splc2.vars.fit <- metadata(splc2.vars)
+
+# plot in base R:
+plot(splc2.vars.fit$mean, splc2.vars.fit$var, 
+     xlab = "mean of log-expression", ylab = "variance of log-expression")
+curve(splc2.vars.fit$trend(x), col = "blue", add = TRUE, lwd = 2)
+
+# plot in ggplot2
+splc2.vars.dt <- as.data.table(splc2.vars.fit$var,keep.rownames=T)
+splc2.means.dt <- as.data.table(splc2.vars.fit$mean,keep.rownames=T)
+sum(splc2.means.dt$V1==splc2.vars.dt$V1)==nrow(splc2.means.dt)
+setnames(splc2.vars.dt,2,"var_log_xpr")
+setnames(splc2.means.dt,2,"mean_log_xpr")
+splc2.mnvar.pltdat <- merge(splc2.means.dt,splc2.vars.dt,by="V1")
+
+# ggplot(splc2.mnvar.pltdat,aes(x=mean_log_xpr,y=var_log_xpr))+
+#   geom_point()+
+  # geom_line(data=environment(splc2.vars.fit$trend),aes(x=x,y=y),inherit.aes = F)
+
+# ^ "`data` must be a <data.frame>, or an object coercible by `fortify()`, not an environment."
+
+ggplot(splc2.mnvar.pltdat, aes(x = mean_log_xpr, y = var_log_xpr)) +
+    geom_point() +
+    geom_function(fun=splc2.vars.fit$trend)
+
+```
