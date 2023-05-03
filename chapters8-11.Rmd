@@ -154,23 +154,53 @@ splc3 <- splc2[,dtct1750==F]
 # naw, naw let's try 200
 dtct200 <- colData(splc2)$detected<200
 colData(splc2)$dtct200 <- dtct200
+### make a temporary spe object with only the hypothetically remaining data to see what the outcome would be 
 splc3 <- splc2[,dtct200==F]
 plotQC(splc3,type = "scatter",metric_y= "detected",metric_x = "cell_count",threshold_y = 200)
 
 # visualize to check for (biological) spatial pattern
 plotSpots(splc2,annotate = "dtct200")
 ## looks like this partially tracks with ventricles? (e.g. 2701 right hand piece) but otherwise tissue edges, which would not represent anything biological here.
+rm(splc3)
 ```
 
 # we worked out of order and already did mitochondrial reads. so
 ```{r}
 colSums(as.data.frame(colData(splc2)[,c("dtct200","excessmito","overtencells")]))
-# so 9822 dropped for low gene detection, 3088 dropped for mitochondria, and 2523 hypothetically dropped for too many cells
+# so 9822 dropped for low gene detection, 3088 dropped for mitochondria, and 2535 hypothetically dropped for too many cells
 
 toss <- dtct200 | colData(splc2)$excessmito
 splc2 <- splc2[,toss==F]
 # what's left?
 dim(splc2)
-# about 40% of the data.
+# about 48% of the data.
 
 ```
+
+
+###################
+###### CH 10 ######
+###################
+
+### we will be continuing with scater as well as scran functions to apply library-size normalized, LOG COUNT normalization AFTER filtering the data.
+```{r}
+library(scran)
+splc2 <- computeLibraryFactors(splc2)
+# peek
+summary(sizeFactors(splc2))
+hist(sizeFactors(splc2),breaks=100)
+saveRDS(splc2,"splc2_line192.RDS")
+# append log counts using scater (don't use the SpatialExpt:: function here, that's for RETRIEVING an assay by the name of "logcounts" from spe objs)
+splc2 <- scater::logNormCounts(splc2)
+# this is stored as a separate DF the ASSAYS component of the SpatialExpt obj
+names(splc2@assays)
+stopifnot(dim(counts(splc2))==dim(logcounts(splc2)))
+# o this was easy chap
+rm(toss,mitogenes,dtct200,dtct1750)
+gc(full=T)
+dev.off()
+```
+
+###################
+###### CH 11 ######
+###################
