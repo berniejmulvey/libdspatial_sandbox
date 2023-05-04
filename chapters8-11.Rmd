@@ -10,6 +10,10 @@ library(data.table)
 library(SpatialExperiment)
 library(ggspavis)
 library(scater) # addPerCellQC
+library(nnSVG)
+library(BiocParallel)
+library(scran)
+library(BRISC)
 # library(STexampleData)
 ```
 
@@ -125,6 +129,7 @@ dev.off()
 ### ok that looks decently like the dlpfc data. (not that this is really true for LC)
 
 colData(splc2) <- DataFrame(coldat.tmp)
+rm(coldat.tmp)
 ```
 
 # so anyhow, we would look at counts per spot as a function of cells per spot like this
@@ -232,6 +237,7 @@ setnames(splc2.vars.dt,2,"var_log_xpr")
 setnames(splc2.means.dt,2,"mean_log_xpr")
 splc2.mnvar.pltdat <- merge(splc2.means.dt,splc2.vars.dt,by="V1")
 
+rm(splc2.vars.dt,splc2.means.dt)
 # ggplot(splc2.mnvar.pltdat,aes(x=mean_log_xpr,y=var_log_xpr))+
 #   geom_point()+
   # geom_line(data=environment(splc2.vars.fit$trend),aes(x=x,y=y),inherit.aes = F)
@@ -240,6 +246,37 @@ splc2.mnvar.pltdat <- merge(splc2.means.dt,splc2.vars.dt,by="V1")
 
 ggplot(splc2.mnvar.pltdat, aes(x = mean_log_xpr, y = var_log_xpr)) +
     geom_point() +
-    geom_function(fun=splc2.vars.fit$trend)
+    geom_function(fun=splc2.vars.fit$trend,col="blue")
+
+rm(splc2.mnvar.pltdat)
+```
+
+#### HVGs continued: pull out the top p % of variable genes (returns a vector of identifiers,no stats etc)
+```{r}
+splc2.hvgs <- scran::getTopHVGs(splc2.vars,prop = 0.1)
+
+
+```
+
+
+### 11.5: Spatially variable genes
+#### Uses autocorrelation statistics Moran's I (global/local) or Geary's C (local)
+##### Useful intro to autocorrelation and Moran's I: https://mgimond.github.io/Spatial/spatial-autocorrelation.html#global-morans-i
+
+###### Global autocorrelation draws polygons ("neighborhoods") with their vertices on the center of spatial areas, with neighbors considered other spatial domains falling in the polygon. Then, an "Xlag" value is calculated as a composite of that neighborhood, e.g., mean. The individual spatial domains' values are input to an ordinary least squares model of neighborhood composite values, creating a line whose slope is the global Moran I.
+
+###### Local autocorrelation basically considers just these correlations within a polygon, directly via Geary's C or through monte carlo significance testing using Moran I.
+
+
+#### Turns out that Ch11.5 doesn't actually have any examples of SVG analyses written in (yet). But author Lukas Weber has also put a pkg on BioC called "nnSVG", so we'll start there and see what other tools LIBD folks suggest.
+
+#### Coveniently, the nnSVG vignette uses the LC spatial dataset as a multi-sample example. So that's easy.
+```{r}
+# X = covariates
+# default n_neighbors = 10, but can also be bumped up to 15
+
+
+sbp <- SnowParam(10,type="FORK",fallback=F)
+
 
 ```
