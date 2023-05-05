@@ -314,6 +314,8 @@ for (i in c(1:length(caps))){
 # computer slept on me and stopped the run mid-sample #5. but whatever this is for demonstrative purposes so that's sufficient.
 # res_list <- res_list[1:4]
 # saveRDS(res_list,"nnSVG_results_4of8samples_050423.RDS")
+rm(i,caps,sbp)
+gc(full=T)
 ```
 
 
