@@ -13,13 +13,12 @@ library(scater) # addPerCellQC
 library(nnSVG)
 library(BiocParallel)
 library(scran)
-library(BRISC)
 # library(STexampleData)
 ```
 
 ## look at components of an spe obj
 ```{r}
-spe <- Visium_humanDLPFC()
+# spe <- Visium_humanDLPFC()
 # eh i kinda would prefer to look at something with multiple samples
 # rm(spe)
 # unloadNamespace(STexampleData)
@@ -135,7 +134,7 @@ rm(coldat.tmp)
 # so anyhow, we would look at counts per spot as a function of cells per spot like this
 ```{r}
 plotQC(splc2,type = "scatter",metric_x = "cell_count",metric_y ="sum",threshold_y = 600)
-
+dev.off()
 # as before, if we wanted to flag spots with more than 10 cells for exclusion (e.g., if that seems to be where the number of genes per spot dives off), then we add a new column to coldata as T/F:
 colData(splc2)$overtencells <- colData(splc2)$cell_count>10
 ```
@@ -144,6 +143,7 @@ colData(splc2)$overtencells <- colData(splc2)$cell_count>10
 ```{r}
 plotSpots(splc2,annotate = "overtencells")
 # and our randomlly generated values are randomly assorted. v good v good. so if this is what real cell count data looked like, we'd be ok to eventually throw those spots
+dev.off()
 ```
 
 ### 9.5.2: filtering for number of genes detected (coldata(spe)$detected)
@@ -152,10 +152,11 @@ plotSpots(splc2,annotate = "overtencells")
 hist(colData(splc2)$detected)
 # let's look first, then plot again with some estimated threshold out a threshold estimate
 plotQC(splc2,type = "scatter",metric_y= "detected",metric_x = "cell_count")
-# sine there are ~0 gene-detected spots across the (fake) cell count let's try  1750 and see what that trendline looks like
+# since there are ~0 gene-detected spots across the (fake) cell count let's try  1750 and see what that trendline looks like
 dtct1750 <- colData(splc2)$detected<1750
 colData(splc2)$dtct1750 <- dtct1750 
 splc3 <- splc2[,dtct1750==F]
+plotQC(splc3,type = "scatter",metric_y= "detected",metric_x = "cell_count")
 # naw, naw let's try 200
 dtct200 <- colData(splc2)$detected<200
 colData(splc2)$dtct200 <- dtct200
@@ -165,11 +166,11 @@ plotQC(splc3,type = "scatter",metric_y= "detected",metric_x = "cell_count",thres
 
 # visualize to check for (biological) spatial pattern
 plotSpots(splc2,annotate = "dtct200")
-## looks like this partially tracks with ventricles? (e.g. 2701 right hand piece) but otherwise tissue edges, which would not represent anything biological here.
+## looks like this mostly tracks with tissue edges, which would not represent anything biological here, so that's a fine cutoff.
 rm(splc3)
 ```
 
-# we worked out of order and already did mitochondrial reads. so
+# we worked out of order and already did mitochondrial reads. so onto the spot filtering summary
 ```{r}
 colSums(as.data.frame(colData(splc2)[,c("dtct200","excessmito","overtencells")]))
 # so 9822 dropped for low gene detection, 3088 dropped for mitochondria, and 2535 hypothetically dropped for too many cells
@@ -199,7 +200,7 @@ splc2 <- scater::logNormCounts(splc2)
 # this is stored as a separate DF the ASSAYS component of the SpatialExpt obj
 names(splc2@assays)
 stopifnot(dim(counts(splc2))==dim(logcounts(splc2)))
-# o this was easy chap
+# o this was easy chapt
 rm(toss,dtct200,dtct1750)
 gc(full=T)
 dev.off()
@@ -247,7 +248,7 @@ rm(splc2.vars.dt,splc2.means.dt)
 ggplot(splc2.mnvar.pltdat, aes(x = mean_log_xpr, y = var_log_xpr)) +
     geom_point() +
     geom_function(fun=splc2.vars.fit$trend,col="blue")
-
+dev.off()
 rm(splc2.mnvar.pltdat)
 ```
 
@@ -275,8 +276,49 @@ splc2.hvgs <- scran::getTopHVGs(splc2.vars,prop = 0.1)
 # X = covariates
 # default n_neighbors = 10, but can also be bumped up to 15
 
+# first, filter the data with nnSVG's built in filtering function. Per Lukas Weber, subsequent nnSVG may get slowed down by trying to hnadle very low-expressed genes.
 
+# filter_genes_ncounts (N) and filter_genes_pcspots (S) work together: genes will be filtered to those with at least N counts in at least S% of spots.  filter_genes_pcspots expects a %age as 0-100, NOT a fraction.
+# let's try being a little gentler than respective defaults of 3 and 0.5, since there's a lot of low-diversity / low-lib-size spots in our data.
+# we also want to keep mitochondrial reads since they were very abundant in LC neurons especially
+splc3 <- nnSVG::filter_genes(splc2,filter_genes_ncounts = 2,filter_genes_pcspots = 0.25, filter_mito = F)
+# even w/ these parmeters, we've cut the data down to about 7k genes from 23k!
+
+# now the workhorse function nnSVG, which can use parallel processing through BiocParallel. Set up the preferred (i.e., compatible) param:
 sbp <- SnowParam(10,type="FORK",fallback=F)
 
+# SUPER CRITICAL IMPORTANT NOTES: 
+# 1. RECALCULATE LOG COUNTS AFTER FILTERING ^
+# 2.nnSVG works ONE SAMPLE (one capture area) at a time. So need to wrap this in a loop. 
+# 3. as such, perform filtering PER SAMPLE. 
+rm(splc3)
+# With vignette as a guide...:
+caps <- unique(colData(splc2)$sample_id)
+res_list <- as.list(rep(NA, length(caps)))
+names(res_list) <- caps
 
+i<-1
+for (i in c(1:length(caps))){
+  cap <- caps[i]
+  splc2.samp <- splc2[,colData(splc2)$sample_id==cap]
+  # dim(splc2.samp)
+  splc2.samp <- filter_genes(splc2.samp,filter_genes_ncounts = 2,filter_genes_pcspots = 0.25,filter_mito = F)
+  #recalculate logcounts
+  splc2.samp <- computeLibraryFactors(splc2.samp)
+  splc2.samp <- logNormCounts(splc2.samp)
+  # main call -- defaults to logcounts but shown for posterity; X if using covariates; n_neighbors defaults to 10, slower but potentially more granular with higher values eg 15, order = don't touch unless you have < 70 spots total; n_threads or BPPARAM for parallelization
+  res_list[[i]] <- nnSVG(splc2.samp,assay_name = "logcounts",BPPARAM = sbp)
+  rm(splc2.samp,cap)
+  gc(full=T)
+}
+# computer slept on me and stopped the run mid-sample #5. but whatever this is for demonstrative purposes so that's sufficient.
+# res_list <- res_list[1:4]
+# saveRDS(res_list,"nnSVG_results_4of8samples_050423.RDS")
 ```
+
+
+### Let's take a look at one nnSVG result object from our result list.
+```{r}
+View(res_list[[1]])
+```
+### To determine experiment-wide nnSVG-derived SVGs, average the ranks from each sample in our results list.
