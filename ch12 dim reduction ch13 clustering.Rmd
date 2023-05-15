@@ -1,0 +1,84 @@
+---
+title: "ch12 dim reduction ch13 clustering"
+author: "Bernie Mulvey"
+date: "2023-05-15"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(fig.height = 10,fig.width = 7,include = FALSE)
+knitr::opts_chunk$set(fig.width=7,fig.height=10)
+#### sets tab autocompletion for directories to begin from the directory containing the .Rproj session, instead of the script's directory if different
+knitr::opts_knit$set(root.dir = here::here())
+
+library(ggplot2)
+library(data.table)
+library(Biostrings)
+library(gridExtra)
+require(colorout)
+ColorOut()
+options("styler.addins_style_transformer" = "biocthis::bioc_style()")
+library(SpatialExperiment)
+library(ggspavis)
+library(scater) # addPerCellQC
+library(nnSVG)
+library(BiocParallel)
+library(scran)
+# library(STexampleData)
+
+theme_set(theme_bw()+theme(axis.text.x = element_text(size = 14), axis.title.x = element_text(size = 16), axis.text.y = element_text(size = 14), axis.title.y = element_text(size =16), plot.title = element_text(size = 20,hjust=0.5), strip.text = element_text(size=18), legend.text = element_text(size=10), legend.title = element_text(size=11,hjust=0.5)))
+```
+
+
+### PCA, quoth OSTA: "We use the computationally efficient implementation of PCA provided in the scater package (McCarthy et al. 2017). This implementation uses randomization, and therefore requires setting a random seed for reproducibility."
+
+```{r}
+splc2 <- readRDS("splc2_line201.RDS")
+vargenes <- fread("Top 1310 ea SVGs and HVGs, union, and n union top SVGs.txt")
+example.vg.vec <- vargenes$hvgs
+
+## as coded in OSTA:
+# splc2 <- runPCA(splc2,subset_row=example.vg.vec)
+
+### note that this is then stored in a new part of the spe object under reducedDim(splc2,"PCA"). our UMAP will also go here, akin to the "counts" and "logcounts" entries in spe -> assays.
+
+
+pcalist <- list()
+vgs <- names(vargenes)
+i <- 1
+for (i in c(1:length(vgs))){
+  pcalist[[i]] <- scater::runPCA(splc2,subset_row=(unique(vargenes[get(vgs[i])!="",get(vgs[i])])))
+  # names(pcalist)[i] <- vgs[i]
+}
+```
+
+### UMAP on PCs: "We also run UMAP (McInnes, Healy, and Melville 2018) on the set of top 50 PCs and retain the top 2 UMAP components, which will be used for visualization purposes." (also in scater; returns the top 2 UMAP components by default)
+
+```{r}
+### as written in OSTA, assuming we have one vector of genes we want to look at
+# splc2 <- scater::runUMAP(splc2,dimred="PCA")
+### 
+
+# we could also just lapply this one but too late
+umaplist <- list()
+i<-1
+for (i in c(1:length(pcalist))){
+  umaplist[[i]] <- scater::runUMAP(pcalist[[i]],dimred="PCA",name = paste0(vgs[i],"_UMAP"))
+  # per OSTA, easier to just rename the two UMAP columns to UMAP1 and UMAP2 for downstream plotting
+  colnames(reducedDim(umaplist[[i]],paste0(vgs[i],"_UMAP"))) <- paste0("UMAP",1:2)
+}
+
+rm(pcalist,i)
+```
+
+So now we have a list of four SPE objects with PCA and UMAP info appended to each based on the four sets of H/S VGs we wanted to compare for learning purposes. So let's do some plotting of PCs and UMAPs
+```{r}
+
+
+
+
+
+
+
+
+```
