@@ -375,7 +375,12 @@ splc2.2218svgs <- nnsvg_ranks[1:2218,rn]
 
 rm(rD,olap.plt,nnsvg_ranks,nnsvg_res_list)
 gc(full=T)
-l```
+
+vargenes <- as.data.table(splc2.2218svgs)
+vargenes <- cbind(vargenes,splc2.hsvgs,c(splc2.hvgs,rep("",nrow(vargenes)-length(splc2.hvgs))),c(splc2.svgs,rep("",nrow(vargenes)-length(splc2.svgs))))
+setnames(vargenes,c("svgs2k","HandSvgs","hvgs","svgs"))
+# write.table(vargenes,"Top 1310 ea SVGs and HVGs, union, and n union top SVGs.txt",sep='\t',quote=F,row.names=F,col.names=T)
+```
 
 
 ### so we can see that the majority of super-SVGs are also considered HVGs, whereas these drop to about 50% to 30 % shared as we consider more of each, confirming that the two datatypes (have potential to) confer distinct information.
