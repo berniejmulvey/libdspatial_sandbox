@@ -24,6 +24,7 @@ library(scater) # addPerCellQC
 library(nnSVG)
 library(BiocParallel)
 library(scran)
+library(parallel)
 # library(STexampleData)
 
 theme_set(theme_bw()+theme(axis.text.x = element_text(size = 14), axis.title.x = element_text(size = 16), axis.text.y = element_text(size = 14), axis.title.y = element_text(size =16), plot.title = element_text(size = 20,hjust=0.5), strip.text = element_text(size=18), legend.text = element_text(size=10), legend.title = element_text(size=11,hjust=0.5)))
@@ -54,6 +55,11 @@ for (i in c(1:length(vgs))){
 
 ### UMAP on PCs: "We also run UMAP (McInnes, Healy, and Melville 2018) on the set of top 50 PCs and retain the top 2 UMAP components, which will be used for visualization purposes." (also in scater; returns the top 2 UMAP components by default)
 
+### tSNE requires PCs, because it is moving points around based on their initial location as (PCx, PCy). UMAP doesn't EXPLICITLY require PCs, but is faster using them. Let's see how PCs->UMAP vs direct UMAP compare, too.
+
+
+### scater::runUMAP uses logcounts by default if running on full data (exprs_values="logcounts"). BPPARAM can be specified and used to parallelize the PCA part of a from-raw-data UMAP task.
+
 ```{r}
 ### as written in OSTA, assuming we have one vector of genes we want to look at
 # splc2 <- scater::runUMAP(splc2,dimred="PCA")
@@ -67,9 +73,37 @@ for (i in c(1:length(pcalist))){
   # per OSTA, easier to just rename the two UMAP columns to UMAP1 and UMAP2 for downstream plotting
   colnames(reducedDim(umaplist[[i]],paste0(vgs[i],"_UMAP"))) <- paste0("UMAP",1:2)
 }
-
-rm(pcalist,i)
 ```
+
+
+## directly generating UMAP from logcounts with parallelization-once again, parallelization issues here and its only using 1 cpu, but this seems to be particular to scater for whatever reason. i can't figure it from the underlying code either.
+
+## oh, on second look, it only does that if you're using the nearest neighbors setting, which is not a default part of the analysis. der. no wonder the following didn't work
+
+bpparam <- MulticoreParam(workers = 8,manager.hostname = "localhost",fallback = F)
+register(bpparam)
+
+for (i in c(1:length(pcalist))){
+   umap.dir.list2[[i]] <- copy(splc2)
+   umap.dir.list2[[i]] <- scater::runUMAP(umap.dir.list2[[i]],name = paste0(vgs[i],"_dirUMAP"),subset_row=(unique(vargenes[get(vgs[i])!="",get(vgs[i])])),BPPARAM=bpparam)
+   colnames(reducedDim(umap.dir.list2[[i]],paste0(vgs[i],"_dirUMAP"))) <- paste0("UMAP",1:2)
+}
+
+# But THIS should
+```{r}
+bpparam <- MulticoreParam(workers = 4,fallback = F)
+register(bpparam)
+
+umap.dir.list <- bplapply(vgs,BPPARAM = bpparam,FUN = function(x){
+  tmp <- copy(splc2)
+  tmp <- scater::runUMAP(tmp,name = paste0(x,"_dirUMAP"),subset_row=(unique(vargenes[get(x)!="",get(x)])))
+  return(tmp)
+})
+# k THAT used 4 cores (one per list item). phew.
+
+
+```
+
 
 So now we have a list of four SPE objects with PCA and UMAP info appended to each based on the four sets of H/S VGs we wanted to compare for learning purposes. So let's do some plotting of PCs and UMAPs
 ```{r}
