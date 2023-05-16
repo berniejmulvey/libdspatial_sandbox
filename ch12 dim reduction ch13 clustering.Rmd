@@ -69,6 +69,7 @@ for (i in c(1:length(vgs))){
 umaplist <- list()
 i<-1
 for (i in c(1:length(pcalist))){
+  set.seed(42)
   umaplist[[i]] <- scater::runUMAP(pcalist[[i]],dimred="PCA",name = paste0(vgs[i],"_UMAP"))
   # per OSTA, easier to just rename the two UMAP columns to UMAP1 and UMAP2 for downstream plotting
   colnames(reducedDim(umaplist[[i]],paste0(vgs[i],"_UMAP"))) <- paste0("UMAP",1:2)
@@ -90,24 +91,25 @@ for (i in c(1:length(pcalist))){
 }
 
 # But THIS should
+# umap is nondeterminstic, so set seed same as above for comparability (i.e., to see whether runUMAP on PCs is the same as runUMAP starting with the logcounts (which will be passed to runPCA first).
 ```{r}
-bpparam <- MulticoreParam(workers = 4,fallback = F)
+bpparam <- MulticoreParam(workers = 4)
 register(bpparam)
 
 umap.dir.list <- bplapply(vgs,BPPARAM = bpparam,FUN = function(x){
+  set.seed(42)
   tmp <- copy(splc2)
   tmp <- scater::runUMAP(tmp,name = paste0(x,"_dirUMAP"),subset_row=(unique(vargenes[get(x)!="",get(x)])))
   return(tmp)
 })
 # k THAT used 4 cores (one per list item). phew.
-
-
 ```
 
 
-So now we have a list of four SPE objects with PCA and UMAP info appended to each based on the four sets of H/S VGs we wanted to compare for learning purposes. So let's do some plotting of PCs and UMAPs
-```{r}
+So now we have a list of four SPE objects with PCA, 4 with PCA-derived UMAP, and 4 with UMAP run on the logcounts (which uses scater's runPCA function internally first anyways, so the latter two sets might look the same after all).So let's do some plotting of PCs and UMAPs.
 
+this is done with ggspavis:: . and since theyre ggplots, we can put them all into a list and then GridExtra do.call gridarrange that shit for one big pdf to see it all at once.
+```{r}
 
 
 
