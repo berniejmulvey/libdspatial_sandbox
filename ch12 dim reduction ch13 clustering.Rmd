@@ -48,7 +48,7 @@ pcalist <- list()
 vgs <- names(vargenes)
 i <- 1
 for (i in c(1:length(vgs))){
-  pcalist[[i]] <- scater::runPCA(splc2,subset_row=(unique(vargenes[get(vgs[i])!="",get(vgs[i])])))
+  pcalist[[i]] <- scater::runPCA(splc2,subset_row=(unique(vargenes[get(vgs[i])!="",get(vgs[i])])),name=paste0(vgs[i],"_PCA"))
   # names(pcalist)[i] <- vgs[i]
 }
 ```
@@ -70,7 +70,7 @@ umaplist <- list()
 i<-1
 for (i in c(1:length(pcalist))){
   set.seed(42)
-  umaplist[[i]] <- scater::runUMAP(pcalist[[i]],dimred="PCA",name = paste0(vgs[i],"_UMAP"))
+  umaplist[[i]] <- scater::runUMAP(pcalist[[i]],dimred=paste0(vgs[i],"_PCA"),name = paste0(vgs[i],"_UMAP"))
   # per OSTA, easier to just rename the two UMAP columns to UMAP1 and UMAP2 for downstream plotting
   colnames(reducedDim(umaplist[[i]],paste0(vgs[i],"_UMAP"))) <- paste0("UMAP",1:2)
 }
@@ -110,11 +110,30 @@ So now we have a list of four SPE objects with PCA, 4 with PCA-derived UMAP, and
 
 this is done with ggspavis:: . and since theyre ggplots, we can put them all into a list and then GridExtra do.call gridarrange that shit for one big pdf to see it all at once.
 ```{r}
+plts <- list()
+i <- 1
+for (i in c(1:12)){
+  if(i<=4){
+    curdim <- reducedDimNames(pcalist[[i]])
+    plts[[i]] <- plotReducedDim(pcalist[[i]],dimred = curdim)
+    rm(curdim)
+  }
+  else if(i>4&i<=8){
+    curdim <- reducedDimNames(umaplist[[i-4]])[2]
+    plts[[i]] <- plotReducedDim(umaplist[[i-4]],dimred=curdim)
+    rm(curdim)
+  }
+  else{
+    curdim <- reducedDimNames(umap.dir.list[[i-8]])
+    plts[[i]] <- plotReducedDim(umap.dir.list[[i-8]],dimred=curdim)
+    rm(curdim)
+  }
+}
 
-
-
-
-
-
-
+library(gridExtra)
+# pdf("ch12_PCs_UMAPsfromPCs_UMAPdirects_4genesets_051623.pdf",width=17,height=14)
+do.call("grid.arrange",c(plts,ncol=4))
+# dev.off()
 ```
+
+^ from this, we can see that including SVGs (left, right columns) really helps distinguish a couple groups on the UMAP that don't diverge as far using only HVGs (3rd column). using some of both seemed to be the most discerning (note the group inside the closed sideways pie slice in row 3, col 2, and compare to the other sets in the row)
