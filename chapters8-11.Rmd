@@ -295,8 +295,8 @@ sbp <- SnowParam(10,type="FORK",fallback=F)
 rm(splc3)
 # With vignette as a guide...:
 caps <- unique(colData(splc2)$sample_id)
-res_list <- as.list(rep(NA, length(caps)))
-names(res_list) <- caps
+res_list2 <- as.list(rep(NA, length(caps)))
+names(res_list2) <- caps
 
 i<-1
 for (i in c(1:length(caps))){
@@ -308,7 +308,7 @@ for (i in c(1:length(caps))){
   splc2.samp <- computeLibraryFactors(splc2.samp)
   splc2.samp <- logNormCounts(splc2.samp)
   # main call -- defaults to logcounts but shown for posterity; X if using covariates; n_neighbors defaults to 10, slower but potentially more granular with higher values eg 15, order = don't touch unless you have < 70 spots total; n_threads or BPPARAM for parallelization
-  res_list[[i]] <- nnSVG(splc2.samp,assay_name = "logcounts",BPPARAM = sbp)
+  res_list2[[i]] <- nnSVG(splc2.samp,assay_name = "logcounts",BPPARAM = sbp)
   rm(splc2.samp,cap)
   gc(full=T)
 }

@@ -1,5 +1,5 @@
 ---
-title: "ch12 dim reduction ch13 clustering"
+title: "ch12 dim reduction"
 author: "Bernie Mulvey"
 date: "2023-05-15"
 output: html_document
@@ -129,11 +129,45 @@ for (i in c(1:12)){
     rm(curdim)
   }
 }
-
 library(gridExtra)
-# pdf("ch12_PCs_UMAPsfromPCs_UMAPdirects_4genesets_051623.pdf",width=17,height=14)
+pdf("plots/ch12_PCs_UMAPsfromPCs_UMAPdirects_4genesets_051623.pdf",width=17,height=14)
 do.call("grid.arrange",c(plts,ncol=4))
-# dev.off()
+dev.off()
 ```
 
 ^ from this, we can see that including SVGs (left, right columns) really helps distinguish a couple groups on the UMAP that don't diverge as far using only HVGs (3rd column). using some of both seemed to be the most discerning (note the group inside the closed sideways pie slice in row 3, col 2, and compare to the other sets in the row)
+
+### wrapper to color by each potential explanatory variable
+```{r}
+qcplotter <- function(colvar){
+  plts <- list()
+  i <- 1
+  for (i in c(1:12)){
+    if(i<=4){
+      curdim <- reducedDimNames(pcalist[[i]])
+      plts[[i]] <- plotReducedDim(pcalist[[i]],dimred = curdim,colour_by = colvar)
+      rm(curdim)
+    }
+    else if(i>4&i<=8){
+      curdim <- reducedDimNames(umaplist[[i-4]])[2]
+      plts[[i]] <- plotReducedDim(umaplist[[i-4]],dimred=curdim,colour_by = colvar)
+      rm(curdim)
+    }
+    else{
+      curdim <- reducedDimNames(umap.dir.list[[i-8]])
+      plts[[i]] <- plotReducedDim(umap.dir.list[[i-8]],dimred=curdim,colour_by = colvar)
+      rm(curdim)
+    }
+  }
+  library(gridExtra)
+  pdf(paste0("plots/ch12_PCs_UMAPsfromPCs_UMAPdirects_4genesets_051623_colby_",colvar,".pdf"),width=17,height=14)
+  do.call("grid.arrange",c(plts,ncol=4))
+  dev.off()
+}
+
+# colData variables of interest: sample_id, round_id, sum, detected, subsets_mito_percent, cell_count, dtct1750, dtct200
+cds <- c("sample_id","round_id","sum","detected","subsets_mito_percent","cell_count","dtct1750","dtct200")
+lapply(cds,qcplotter)
+```
+
+## from these, we can see that the PCs primarily are separating samples from one another, which isn't unexpected since the LC is only a very small portion of each sample.

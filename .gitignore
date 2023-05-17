@@ -29,3 +29,4 @@ vignettes/*.pdf
 .DS_Store
 nnSVG_results_4of8samples_050423.RDS
 splc2_line201.RDS
+plots
