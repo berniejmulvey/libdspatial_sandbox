@@ -1,0 +1,111 @@
+---
+title: "ch13 clustering"
+author: "Bernie Mulvey"
+date: "2023-05-15"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(fig.height = 10,fig.width = 7,include = FALSE)
+knitr::opts_chunk$set(fig.width=7,fig.height=10)
+#### sets tab autocompletion for directories to begin from the directory containing the .Rproj session, instead of the script's directory if different
+knitr::opts_knit$set(root.dir = here::here())
+
+library(ggplot2)
+library(data.table)
+library(Biostrings)
+library(gridExtra)
+require(colorout)
+ColorOut()
+options("styler.addins_style_transformer" = "biocthis::bioc_style()")
+library(SpatialExperiment)
+library(ggspavis)
+library(scater) # addPerCellQC
+library(nnSVG)
+library(BiocParallel)
+library(scran)
+library(parallel)
+# library(STexampleData)
+
+theme_set(theme_bw()+theme(axis.text.x = element_text(size = 14), axis.title.x = element_text(size = 16), axis.text.y = element_text(size = 14), axis.title.y = element_text(size =16), plot.title = element_text(size = 20,hjust=0.5), strip.text = element_text(size=18), legend.text = element_text(size=10), legend.title = element_text(size=11,hjust=0.5)))
+```
+
+load previous objs
+```{r}
+# filtered data
+splc2 <- readRDS("splc2_line201.RDS")
+# hvgs, svgs, and combinations
+vgs <- fread("Top 1310 ea SVGs and HVGs, union, and n union top SVGs.txt")
+
+# umap and pca objs
+umlist <- readRDS("processed/ch12/umaplist.RDS")
+umdirlist <- readRDS("processed/ch12/umapdirlist.RDS")
+pcalist <- readRDS("processed/ch12/pcalist.RDS")
+```
+
+Spatially-UNAWARE clustering:
+"We can perform clustering by applying standard clustering methods developed for single-cell RNA sequencing data, using molecular features (gene expression). Here, we apply graph-based clustering using the Walktrap method implemented in scran (Lun, McCarthy, and Marioni 2016), applied to the top 50 PCs calculated on the set of top HVGs."
+
+Since we have H, S, and H+S vgs, we can try it w all four. the bigger question will be what to set k.
+
+```{r}
+bpparam <- MulticoreParam(workers=8)
+glist <- bplapply(pcalist,BPPARAM = bpparam,FUN=function(x){
+  scran::buildSNNGraph(x,k=16,use.dimred=reducedDimNames(x))
+})
+
+g_walk <- bplapply(glist,igraph::cluster_walktrap,BPPARAM = bpparam)
+walkclusts <- lapply(g_walk,FUN=function(x){x$membership})
+
+# output is a vector of length(colData((spe)) with the cluster assignment 
+walkclusts[[1]]
+
+## check cluster sizes
+lapply(walkclusts,table)
+## notice that despite k set to 16 above, the different gene sets give 8-14 clusters. not sure what to make of that. 
+
+# append cluster labels to spes for visualization
+names(walkclusts) <- names(pcalist)
+i<-1
+for (i in c(1:4)){
+  colLabels(pcalist[[i]]) <- factor(walkclusts[[i]])
+}
+rm(i,g_walk,glist)
+gc(full=T)
+# colLabels gives this column the name label and no way to do otherwise
+names(colData(pcalist[[1]]))
+# what does it do when you feed a second label in?
+colLabels(pcalist[[1]]) <- rep("z",ncol(pcalist[[1]]))
+colData(pcalist[[1]])[1:3,32]
+## oh, just overwrites it. so hang onto walkclusts so we can rotate through them and other labels as we go. and switch the pcal [[1]] back to the walkclust assignments
+colLabels(pcalist[[1]]) <- factor(walkclusts[[1]])
+# saveRDS(walkclusts,"data/pcalist_walktrap_clusts.RDS")
+```
+
+plot cluster assignments onto spatial data
+### note: scCustomize has functions to pull from palette sets of up to 50 colors
+### https://samuel-marsh.github.io/scCustomize/articles/Color_Palettes.html
+### and see here for storing those palette assignments https://samuel-marsh.github.io/scCustomize/articles/Helpers_and_Utilities.html
+```{r}
+library(scCustomize)
+
+# ick, the first two colors are black and gray so skip those ones by pulling 2 extra colors and only using colors ≥3
+plts <- list()
+i<-1
+for (i in c(1:length(pcalist))){
+  x<-pcalist[[i]]
+  plts[[i]] <- ggspavis::plotSpots(pcalist[[i]], annotate = "label", palette = DiscretePalette_scCustomize(num_colors = 2 + length(unique(colData(x)$label)), palette = "polychrome")[3:(length(unique(colData(x)$label)) + 2)])+
+    ggtitle(paste0(names(pcalist)[i]))
+  rm(x)
+}
+rm(i)
+
+# pdf("plots/ch13_clusters_walktrap_k16_by_hsvgSets.pdf",height=18,width=4)
+do.call("grid.arrange",c(plts,ncol=1))
+# dev.off()
+rm(plts)
+
+```
+
+
+### now i'm not really sure what this walktrap business is...i think we need to play with other spatially-aware and unaware clustering algos. let's look through the LC and dlPFC git repos for what some more refined clustering techniques might look like.
