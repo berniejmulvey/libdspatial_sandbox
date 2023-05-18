@@ -32,8 +32,8 @@ theme_set(theme_bw()+theme(axis.text.x = element_text(size = 14), axis.title.x =
 
 load previous objs
 ```{r}
-# filtered data
-splc2 <- readRDS("splc2_line201.RDS")
+# filtered data (cloned into the three list objs below, which also included PCA/UMAP info )
+# splc2 <- readRDS("splc2_line201.RDS")
 # hvgs, svgs, and combinations
 vgs <- fread("Top 1310 ea SVGs and HVGs, union, and n union top SVGs.txt")
 
@@ -109,3 +109,15 @@ rm(plts)
 
 
 ### now i'm not really sure what this walktrap business is...i think we need to play with other spatially-aware and unaware clustering algos. let's look through the LC and dlPFC git repos for what some more refined clustering techniques might look like.
+
+
+
+### 05/18/23
+```{r}
+# restore stuff from above
+pcalist <- readRDS("processed/ch12/pcalist.RDS")
+walkclusts <- readRDS("data/pcalist_walktrap_clusts.RDS")
+i<-1
+for (i in c(1:length(pcalist))){colLabels(pcalist[[i]]) <- factor(walkclusts[i])}
+
+```
