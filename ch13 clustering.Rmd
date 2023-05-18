@@ -25,6 +25,7 @@ library(nnSVG)
 library(BiocParallel)
 library(scran)
 library(parallel)
+library(scCustomize)
 # library(STexampleData)
 
 theme_set(theme_bw()+theme(axis.text.x = element_text(size = 14), axis.title.x = element_text(size = 16), axis.text.y = element_text(size = 14), axis.title.y = element_text(size =16), plot.title = element_text(size = 20,hjust=0.5), strip.text = element_text(size=18), legend.text = element_text(size=10), legend.title = element_text(size=11,hjust=0.5)))
@@ -87,7 +88,6 @@ plot cluster assignments onto spatial data
 ### https://samuel-marsh.github.io/scCustomize/articles/Color_Palettes.html
 ### and see here for storing those palette assignments https://samuel-marsh.github.io/scCustomize/articles/Helpers_and_Utilities.html
 ```{r}
-library(scCustomize)
 
 # ick, the first two colors are black and gray so skip those ones by pulling 2 extra colors and only using colors ≥3
 plts <- list()
@@ -114,10 +114,105 @@ rm(plts)
 
 ### 05/18/23
 ```{r}
-# restore stuff from above
+# restore stuff from above + umaps derived from pcalist
 pcalist <- readRDS("processed/ch12/pcalist.RDS")
+umaplist <- readRDS("processed/ch12/umaplist.RDS")
 walkclusts <- readRDS("data/pcalist_walktrap_clusts.RDS")
 i<-1
-for (i in c(1:length(pcalist))){colLabels(pcalist[[i]]) <- factor(walkclusts[i])}
+for (i in c(1:length(pcalist))){
+  colLabels(pcalist[[i]]) <- factor(walkclusts[[i]])
+  colLabels(umaplist[[i]]) <- factor(walkclusts[[i]])
+  reducedDimNames(umaplist[[i]])[1] <- "PCA"
+  reducedDimNames(umaplist[[i]])[2] <- "UMAP"}
 
+plts <- list()
+i<-1
+js <- seq(1,by=2,to=2*length(umaplist))
+for (i in c(1:length(umaplist))){
+  j <- js[i]
+  x <- umaplist[[i]]
+  plts[[j]] <-
+    plotDimRed(
+    x,
+    type = "PCA",
+    annotate = "label",
+    palette = DiscretePalette_scCustomize(num_colors = 2 + length(unique(colData(x)$label)), palette = "polychrome")[3:(length(unique(colData(x)$label)) + 2)]
+) + aes(shape=factor(colData(x)$donor_id))
+    ggtitle(paste0(gsub(
+        names(umaplist)[i],
+        pattern = "_UMAP", replacement = ""
+    )))
+  
+# in umap space
+  plts[[j + 1]] <-
+      plotDimRed(
+          x,
+          type = "UMAP",
+          annotate = "label",
+          palette = DiscretePalette_scCustomize(num_colors = 2 + length(unique(colData(
+              x
+          )$label)), palette = "polychrome")[3:(length(unique(colData(x)$label)) + 2)]
+      ) +
+      ggtitle(names(umaplist)[i])
+  rm(x,j)
+}
+
+rm(i,js)
+
+pdf("plots/ch13_clustersInDimRed_walktrap_k16_by_hsvgs.pdf",height=18,width=10)
+do.call("grid.arrange",c(plts,nrow=4))
+dev.off()
+rm(plts)
+
+
+#### for reference: though ugly, to add shapes coding explanatory variables:
+# plotDimRed(
+#     x,
+#     type = "PCA",
+#     annotate = "label",
+#     palette = DiscretePalette_scCustomize(num_colors = 2 + length(unique(colData(x)$label)), palette = "polychrome")[3:(length(unique(colData(x)$label)) + 2)],
+#     size = 1
+# ) + aes(shape=factor(colData(x)$donor_id)) +
+# scale_shape_manual(values=seq(7,to=length(colData(x)$donor_id)))
+
+## the scale shape line grabs as many shapes as necess for the explanatory var, so long as its under 25 levels anyhow
+```
+
+
+### Extending from ch13, part 1: optimal k determination w/ fasthplus
+##### adapting from louise H's script for dlPFC spatial: https://github.com/LieberInstitute/spatialDLPFC/blob/main/code/analysis/06_fasthplus/01_fasthplus.R
+
+the 1310 svgs (umap plot 4) look cleanest so we'll use that as our feature set here.
+```{r}
+splc2 <- readRDS("processed/ch7-11/splc2_line201.RDS")
+# hpb estimate. t = pre-bootstrap sample size, D = reduced dimensions matrix, L = cluster labels, r = number of bootstrap iterations
+
+bpparam <- MulticoreParam(workers=8)
+results <- data.frame(matrix(nrow=0,ncol=2))
+colnames(results) <- c("k","fasthplus")
+ks <- c(5:7)
+  
+  bplapply(pcalist,FUN=function(x){
+  find_t <- function(L, proportion = 0.05) {
+      initial_t <- floor(length(L) * proportion)
+      smallest_cluster_size <- min(table(L))
+      n_labels <- length(unique(L))
+      ifelse(smallest_cluster_size > (initial_t / n_labels), initial_t, smallest_cluster_size * n_labels)
+  }
+  
+  initial_t <- find_t(L = colData(spe)$label, proportion = 0.01)
+  
+  cluster_prop <- table(colData(spe)[[paste0("bayesSpace_harmony_", k)]]) / ncol(spe)
+  bad_clusters <- which(cluster_prop < 0.01 / k)
+  if (length(bad_clusters) > 0) {
+      message("For k: ", k, " we are dropping small clusters: ", paste(names(bad_clusters), collapse = ", "))
+      spe <- spe[, !colData(spe)[[paste0("bayesSpace_harmony_", k)]] %in% as.integer(names(bad_clusters))]
+      updated_t <- find_t(colData(spe)[[paste0("bayesSpace_harmony_", k)]], 0.01)
+      message("initial t: ", initial_t, "; updated t: ", updated_t)
+  }
+  
+  set.seed(42)
+  fasthplus <- hpb(D = reducedDims(spe)$PCA, L = colData(spe)[[paste0("bayesSpace_harmony_", k)]], t = updated_t, r = 30)
+  results <- rbind(results,cbind(k = k, fasthplus = fasthplus))
+  })
 ```
