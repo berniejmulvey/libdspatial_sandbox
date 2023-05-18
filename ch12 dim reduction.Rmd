@@ -103,6 +103,11 @@ umap.dir.list <- bplapply(vgs,BPPARAM = bpparam,FUN = function(x){
   return(tmp)
 })
 # k THAT used 4 cores (one per list item). phew.
+
+# save for loading into ch13
+saveRDS(umaplist,"umaplist.RDS")
+saveRDS(umap.dir.list,"umapdirlist.RDS")
+saveRDS(pcalist,"pcalist.RDS")
 ```
 
 
