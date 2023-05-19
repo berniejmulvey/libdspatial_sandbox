@@ -26,6 +26,7 @@ library(BiocParallel)
 library(scran)
 library(parallel)
 library(scCustomize)
+library(fasthplus)
 # library(STexampleData)
 
 theme_set(theme_bw()+theme(axis.text.x = element_text(size = 14), axis.title.x = element_text(size = 16), axis.text.y = element_text(size = 14), axis.title.y = element_text(size =16), plot.title = element_text(size = 20,hjust=0.5), strip.text = element_text(size=18), legend.text = element_text(size=10), legend.title = element_text(size=11,hjust=0.5)))
@@ -39,8 +40,8 @@ load previous objs
 vgs <- fread("Top 1310 ea SVGs and HVGs, union, and n union top SVGs.txt")
 
 # umap and pca objs
-umlist <- readRDS("processed/ch12/umaplist.RDS")
-umdirlist <- readRDS("processed/ch12/umapdirlist.RDS")
+umaplist <- readRDS("processed/ch12/umaplist.RDS")
+# umdirlist <- readRDS("processed/ch12/umapdirlist.RDS")
 pcalist <- readRDS("processed/ch12/pcalist.RDS")
 ```
 
@@ -112,7 +113,7 @@ rm(plts)
 
 
 
-### 05/18/23
+## 05/18/23 ##
 ```{r}
 # restore stuff from above + umaps derived from pcalist
 pcalist <- readRDS("processed/ch12/pcalist.RDS")
@@ -159,9 +160,9 @@ for (i in c(1:length(umaplist))){
 
 rm(i,js)
 
-pdf("plots/ch13_clustersInDimRed_walktrap_k16_by_hsvgs.pdf",height=18,width=10)
+# pdf("plots/ch13_clustersInDimRed_walktrap_k16_by_hsvgs.pdf",height=18,width=10)
 do.call("grid.arrange",c(plts,nrow=4))
-dev.off()
+# dev.off()
 rm(plts)
 
 
@@ -182,37 +183,79 @@ rm(plts)
 ### Extending from ch13, part 1: optimal k determination w/ fasthplus
 ##### adapting from louise H's script for dlPFC spatial: https://github.com/LieberInstitute/spatialDLPFC/blob/main/code/analysis/06_fasthplus/01_fasthplus.R
 
-the 1310 svgs (umap plot 4) look cleanest so we'll use that as our feature set here.
+the 1310 svgs (umap plot 4) look cleanest so we'll use svgs as our feature set here.
 ```{r}
-splc2 <- readRDS("processed/ch7-11/splc2_line201.RDS")
-# hpb estimate. t = pre-bootstrap sample size, D = reduced dimensions matrix, L = cluster labels, r = number of bootstrap iterations
+pcalist <- pcalist[[4]]
+gc(full=T)
+### we can do 5 at a time locally with a dataset this size, so:
+kspan <- c(6:30)
+fhrestab <- as.data.frame(matrix(nrow=length(kspan),ncol=2))
+colnames(fhrestab) <- c("k","fasthplus")
 
-bpparam <- MulticoreParam(workers=8)
-results <- data.frame(matrix(nrow=0,ncol=2))
-colnames(results) <- c("k","fasthplus")
-ks <- c(5:7)
+i<-1
+for (i in c(1:length(kspan)/5)){
+  ks <- kspan[c((5*i+1):(5*i+5))]
+  multiklist <- list(pcalist,pcalist,pcalist,pcalist,pcalist)
+  multiklist <- lapply(multiklist,FUN=function(x){
+    reducedDimNames(x) <- "PCA"
+    x})
+  # hpb estimate. t = pre-bootstrap sample size, D = reduced dimensions matrix, L = cluster labels, r = number of bootstrap iterations
   
-  bplapply(pcalist,FUN=function(x){
+  # helper functions
   find_t <- function(L, proportion = 0.05) {
-      initial_t <- floor(length(L) * proportion)
-      smallest_cluster_size <- min(table(L))
-      n_labels <- length(unique(L))
-      ifelse(smallest_cluster_size > (initial_t / n_labels), initial_t, smallest_cluster_size * n_labels)
+        initial_t <- floor(length(L) * proportion)
+        smallest_cluster_size <- min(table(L))
+        n_labels <- length(unique(L))
+        ifelse(smallest_cluster_size > (initial_t / n_labels), initial_t, smallest_cluster_size * n_labels)
   }
   
-  initial_t <- find_t(L = colData(spe)$label, proportion = 0.01)
+  bpparam <- MulticoreParam(workers=8)
+  register(bpparam)
   
-  cluster_prop <- table(colData(spe)[[paste0("bayesSpace_harmony_", k)]]) / ncol(spe)
-  bad_clusters <- which(cluster_prop < 0.01 / k)
-  if (length(bad_clusters) > 0) {
-      message("For k: ", k, " we are dropping small clusters: ", paste(names(bad_clusters), collapse = ", "))
-      spe <- spe[, !colData(spe)[[paste0("bayesSpace_harmony_", k)]] %in% as.integer(names(bad_clusters))]
-      updated_t <- find_t(colData(spe)[[paste0("bayesSpace_harmony_", k)]], 0.01)
-      message("initial t: ", initial_t, "; updated t: ", updated_t)
-  }
+  mk.glist <- bpmapply(function(X,Y){scran::buildSNNGraph(X,k=Y,use.dimred=reducedDimNames(X))}, BPPARAM = bpparam, X=multiklist, Y=ks)
   
-  set.seed(42)
-  fasthplus <- hpb(D = reducedDims(spe)$PCA, L = colData(spe)[[paste0("bayesSpace_harmony_", k)]], t = updated_t, r = 30)
-  results <- rbind(results,cbind(k = k, fasthplus = fasthplus))
+  mk.g_walk <- bplapply(mk.glist,igraph::cluster_walktrap,BPPARAM = bpparam)
+  rm(mk.glist)
+  mk.walkclusts <- lapply(mk.g_walk,FUN=function(x){x$membership})
+  rm(mk.g_walk)
+  
+  # assign as character, not factor -- otherwise we can't drop rows properly in fasth loop below
+  multiklist <- bpmapply(X=mk.walkclusts,Y=multiklist,FUN=function(X,Y){
+    colLabels(Y) <- factor(X)
+    Y})
+  # check if all this worked
+  lapply(multiklist,FUN=function(x){table(colData(x)$label)})
+  # ok
+  
+  multiklist <- mapply(X=multiklist,Y=ks,FUN=function(X,Y){
+    colnames(colData(X))[which(colnames(colData(X))=="label")] <- paste0("label_",Y)
+    X
   })
+  
+  fhres <- mapply(X=multiklist,Y=ks,function(X,Y){
+    initial_t <- find_t(L = colData(X)[[paste0("label_",Y)]], proportion = 0.01)
+    cluster_prop <- table(colData(X)[[paste0("label_",Y)]]) / ncol(X)
+    bad_clusters <- which(cluster_prop < 0.01)
+      if (length(bad_clusters) > 0) {
+          message("For k: ", Y, " we are dropping small clusters: ", paste(names(bad_clusters), collapse = ", "))
+          X <- X[, !(levels(colData(X)[[paste0("label_",Y)]]) %in% as.character(names(bad_clusters)))]
+          updated_t <- find_t(colData(X)[[paste0("label_",Y)]], 0.01)
+          message("initial t: ", initial_t, "; updated t: ", updated_t)
+      }
+      else{
+        updated_t <- initial_t
+      }
+      
+    set.seed(42)
+    hpb(D = reducedDims(X)$PCA, L = colData(X)[[paste0("label_", Y)]], t = updated_t, r = 100)
+  })
+  
+  if(i==1){fhrestab <- cbind(ks,unlist(fhres))}
+  else{fhrestab <- rbind(fhrestab,cbind(ks,unlist(fhres)))}
+  rm(curks,fhres,multiklist,mk.walkclusts)
+  gc(full=T)
+}
+write.table(fhrestab,"analysis/ch13-clustering/fasthplus_results_1310svgs.txt",sep='\t',quote=F,row.names=F,col.names = T)
+
+
 ```
