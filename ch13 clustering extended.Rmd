@@ -1,0 +1,182 @@
+---
+title: "ch13 clustering"
+author: "Bernie Mulvey"
+date: "2023-05-15"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(fig.height = 10,fig.width = 7,include = FALSE)
+knitr::opts_chunk$set(fig.width=7,fig.height=10)
+#### sets tab autocompletion for directories to begin from the directory containing the .Rproj session, instead of the script's directory if different
+knitr::opts_knit$set(root.dir = here::here())
+
+library(data.table)
+require(colorout)
+ColorOut()
+options("styler.addins_style_transformer" = "biocthis::bioc_style()")
+library(SpatialExperiment)
+# library(ggspavis)
+# library(scater) # addPerCellQC
+# library(nnSVG)
+library(BiocParallel)
+library(scran)
+library(parallel)
+# library(scCustomize)
+library(fasthplus)
+# library(STexampleData)
+library(segmented)
+
+```
+
+load only objs we need for mem effish
+```{r}
+pcalist <- readRDS("processed/ch12/pcalist.RDS")
+```
+
+### Extending from ch13, part 1: optimal k determination w/ fasthplus
+##### adapting from louise H's script for dlPFC spatial: https://github.com/LieberInstitute/spatialDLPFC/blob/main/code/analysis/06_fasthplus/01_fasthplus.R
+
+the 1310 svgs (umap plot 4) look cleanest so we'll use svgs as our feature set here.
+```{r}
+pcalist <- pcalist[[4]]
+gc(full=T)
+### we can do 5 at a time locally with a dataset this size, so:
+kspan <- c(6:30)
+
+i<-1
+for (i in c(1:(length(kspan)/5))){
+  ks <- kspan[c((5*(i-1)+1):(5*i))]
+  multiklist <- list(pcalist,pcalist,pcalist,pcalist,pcalist)
+  multiklist <- lapply(multiklist,FUN=function(x){
+    reducedDimNames(x) <- "PCA"
+    x})
+  # hpb estimate. t = pre-bootstrap sample size, D = reduced dimensions matrix, L = cluster labels, r = number of bootstrap iterations
+  
+  # helper functions
+  find_t <- function(L, proportion = 0.05) {
+        initial_t <- floor(length(L) * proportion)
+        smallest_cluster_size <- min(table(L))
+        n_labels <- length(unique(L))
+        ifelse(smallest_cluster_size > (initial_t / n_labels), initial_t, smallest_cluster_size * n_labels)
+  }
+  
+  bpparam <- MulticoreParam(workers=8)
+  register(bpparam)
+  
+  mk.glist <- bpmapply(function(X,Y){scran::buildSNNGraph(X,k=Y,use.dimred=reducedDimNames(X))}, BPPARAM = bpparam, X=multiklist, Y=ks)
+  
+  mk.g_walk <- bplapply(mk.glist,igraph::cluster_walktrap,BPPARAM = bpparam)
+  rm(mk.glist)
+  mk.walkclusts <- lapply(mk.g_walk,FUN=function(x){x$membership})
+  rm(mk.g_walk)
+  
+  # assign as character, not factor -- otherwise we can't drop rows properly in fasth loop below
+  multiklist <- bpmapply(X=mk.walkclusts,Y=multiklist,FUN=function(X,Y){
+    colLabels(Y) <- factor(X)
+    Y})
+  # check if all this worked
+  lapply(multiklist,FUN=function(x){table(colData(x)$label)})
+  # ok
+  
+  multiklist <- mapply(X=multiklist,Y=ks,FUN=function(X,Y){
+    colnames(colData(X))[which(colnames(colData(X))=="label")] <- paste0("label_",Y)
+    X
+  })
+  
+  fhres <- mapply(X=multiklist,Y=ks,function(X,Y){
+    initial_t <- find_t(L = colData(X)[[paste0("label_",Y)]], proportion = 0.01)
+    cluster_prop <- table(colData(X)[[paste0("label_",Y)]]) / ncol(X)
+    bad_clusters <- which(cluster_prop < 0.01)
+      if (length(bad_clusters) > 0) {
+          message("For k: ", Y, " we are dropping small clusters: ", paste(names(bad_clusters), collapse = ", "))
+          X <- X[, !(levels(colData(X)[[paste0("label_",Y)]]) %in% as.character(names(bad_clusters)))]
+          updated_t <- find_t(colData(X)[[paste0("label_",Y)]], 0.01)
+          message("initial t: ", initial_t, "; updated t: ", updated_t)
+      }
+      else{
+        updated_t <- initial_t
+      }
+      
+    set.seed(42)
+    hpb(D = reducedDims(X)$PCA, L = colData(X)[[paste0("label_", Y)]], t = updated_t, r = 100)
+  })
+  
+  if(i==1){fhrestab <- cbind(ks,unlist(fhres))}
+  else{fhrestab <- rbind(fhrestab,cbind(ks,unlist(fhres)))}
+  rm(curks,fhres,multiklist,mk.walkclusts)
+  gc(full=T)
+}
+rm(i, kspan)
+
+colnames(fhrestab) <- c("k","fasthplus")
+
+
+# write.table(fhrestab,"analysis/ch13-clustering/fasthplus_results_1310svgs_k6-30.txt",sep='\t',quote=F,row.names=F,col.names = T)
+
+fhrestab <- fread("analysis/ch13-clustering/fasthplus_results_1310svgs_k6-30.txt")
+
+### https://github.com/LieberInstitute/spatialDLPFC/blob/main/code/analysis/06_fasthplus/02_segmented_inflection_point.R 
+f2 <- lm(V2 ~ ks, data = fhrestab)
+
+seg <- segmented(f2,
+    seg.Z = ~ks,
+    npsi = 1
+)
+
+seg2 <- segmented(f2,
+    seg.Z = ~ks,
+    npsi = 2
+)
+
+seg2$psi
+seg$psi
+## ^ convergence on k=~28
+```
+
+#### recluster with 1310, SVGS, 
+```{r}
+
+library(data.table)
+require(colorout)
+ColorOut()
+options("styler.addins_style_transformer" = "biocthis::bioc_style()")
+library(SpatialExperiment)
+# library(ggspavis)
+library(scater) # addPerCellQC
+# library(nnSVG)
+library(BiocParallel)
+library(scran)
+library(parallel)
+# library(scCustomize)
+library(fasthplus)
+# library(STexampleData)
+library(segmented)
+
+```
+
+load only objs we need for mem effish
+```{r}
+pcalist <- readRDS("processed/ch12/pcalist.RDS")
+```
+
+### Extending from ch13, part 1: optimal k determination w/ fasthplus
+##### adapting from louise H's script for dlPFC spatial: https://github.com/LieberInstitute/spatialDLPFC/blob/main/code/analysis/06_fasthplus/01_fasthplus.R
+
+the 1310 svgs (umap plot 4) look cleanest so we'll use svgs as our feature set here.
+```{r}
+pcalist <- readRDS("processed/ch12/pcalist.RDS")
+svgpca <- pcalist[[4]]
+reducedDimNames(svgpca) <- "PCA"
+
+svg.glist28 <- scran::buildSNNGraph(svgpca,k=28,use.dimred="PCA")
+colLabels(svgpca) <- factor(igraph::cluster_walktrap(svg.glist28,)$membership)
+
+### plot cluster assignments on UMAP, PCA, spatial
+library(ggspavis)
+svgpca <- calcul
+svgpca <- runUMAP(svgpca,altexp = "logcounts")
+
+plotDimRed(svgpca,annotate="label",type = "PCA")
+plotSpots(svgpca,annotate = "label")
+```
