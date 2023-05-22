@@ -170,13 +170,17 @@ svgpca <- pcalist[[4]]
 reducedDimNames(svgpca) <- "PCA"
 
 svg.glist28 <- scran::buildSNNGraph(svgpca,k=28,use.dimred="PCA")
-colLabels(svgpca) <- factor(igraph::cluster_walktrap(svg.glist28,)$membership)
+colLabels(svgpca) <- factor(igraph::cluster_walktrap(svg.glist28)$membership)
 
 ### plot cluster assignments on UMAP, PCA, spatial
 library(ggspavis)
-svgpca <- calcul
-svgpca <- runUMAP(svgpca,altexp = "logcounts")
-
+svgpca <- runUMAP(svgpca)
+reducedDims(svgpca)$UMAP <- as.data.frame(reducedDims(svgpca)$UMAP)
+colnames(reducedDims(svgpca)$UMAP) <- c("UMAP1","UMAP2")
 plotDimRed(svgpca,annotate="label",type = "PCA")
+plotDimRed(svgpca,annotate="label",type = "UMAP")
+
 plotSpots(svgpca,annotate = "label")
+
+# saveRDS(svgpca,"processed/ch13/1310svgs_k28walktrap_clustered_spe.RDS")
 ```

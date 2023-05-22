@@ -1,0 +1,78 @@
+---
+title: "ch13 clustering extended pt2-bayesspace"
+author: "Bernie Mulvey"
+date: "2023-05-20"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(fig.height = 10,fig.width = 7,include = FALSE)
+knitr::opts_chunk$set(fig.width=7,fig.height=10)
+#### sets tab autocompletion for directories to begin from the directory containing the .Rproj session, instead of the script's directory if different
+knitr::opts_knit$set(root.dir = here::here())
+
+library(ggplot2)
+library(data.table)
+library(Biostrings)
+library(gridExtra)
+require(colorout)
+ColorOut()
+options("styler.addins_style_transformer" = "biocthis::bioc_style()")
+library(SpatialExperiment)
+library(ggspavis)
+library(scater) # addPerCellQC
+library(BiocParallel)
+library(scran)
+library(parallel)
+library(BayesSpace)
+library(assertthat)
+
+theme_set(theme_bw()+theme(axis.text.x = element_text(size = 14), axis.title.x = element_text(size = 16), axis.text.y = element_text(size = 14), axis.title.y = element_text(size =16), plot.title = element_text(size = 20,hjust=0.5), strip.text = element_text(size=18), legend.text = element_text(size=10), legend.title = element_text(size=11,hjust=0.5)))
+```
+
+
+# load optimal k=28 data from previous (for the corresp PCA, not the cluster labels) using SVGs (we would really use HVGs here but since we optimized for svgs previously just go with it)
+```{r}
+splc <- readRDS("processed/ch13/1310svgs_k28walktrap_clustered_spe.RDS")
+```
+
+### from https://github.com/LieberInstitute/spatialDLPFC/blob/main/code/analysis/03_BayesSpace/01_BayesSpace.R
+
+^ says: don't use spatial preprocess. in order to do this you have to reset metadata.
+
+HOWEVER, now throws an error if you don't do this. also, the documentation says that it ADDS metadata, which shouldn't be equiv to overwriting it...but this is also not using harmony or anything like that so we'll have to see.
+
+```{r}
+splc.preproc <- spatialPreprocess(splc,platform="Visium",skip.PCA=T)
+```
+
+## comparing splc and splc.preproc: splc@metadata is an empty list. splc.preproc@metadata is a list with one entry for bs metadata. the function adds this to the metadata section without overwriting or blanking out anything else. (now if there were already bs metadata we wanted to keep, we'd have to change the name of the prior metadata first).
+
+## ANYHOW.
+## important from slack: need to run
+colData(splc.preproc)$row <- colData(splc.preproc)$array_row
+colData(splc.preproc)$col <- colData(splc.preproc)$array_col
+or will get "subscript contains invalid names"
+```{r}
+colData(splc.preproc)$row <- colData(splc.preproc)$array_row
+colData(splc.preproc)$col <- colData(splc.preproc)$array_col
+
+## libd uses nrep 10k, defaults are 50k, using a mere 2k here for exemplification purposes
+splc.bs <- spatialCluster(sce = splc.preproc,init.method = "mclust",use.dimred = "PCA",q = 28,platform = "Visium",nrep=2000)
+
+colnames(colData(splc.bs))
+colLabels(splc.bs) <- factor(colData(splc.bs)$spatial.cluster)
+
+pdf("~/Desktop/bs.clusters.pdf",height=10,width=10)
+ggspavis::plotSpots(splc.bs,annotate = "label",palette = DiscretePalette_scCustomize(num_colors = 2 + length(unique(colData(splc.bs)$label)), palette = "polychrome")[3:(length(unique(colData(splc.bs)$label)) + 2)])
+dev.off()
+```
+
+
+## let's investigate br8079 rd 3 BS cluster 28, which looks hella LCish.
+
+```{r}
+saveRDS(splc.bs,"processed/ch13/1310svgs_k28_bayesspace.RDS")
+rm(list=ls())
+gc(full=T)
+```
