@@ -1,0 +1,64 @@
+---
+title: "ch14-markers aka cluster de"
+author: "Bernie Mulvey"
+date: "2023-05-22"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(fig.height = 10,fig.width = 7,include = FALSE)
+knitr::opts_chunk$set(fig.width=7,fig.height=10)
+#### sets tab autocompletion for directories to begin from the directory containing the .Rproj session, instead of the script's directory if different
+knitr::opts_knit$set(root.dir = here::here())
+
+library(ggplot2)
+library(data.table)
+library(Biostrings)
+library(gridExtra)
+require(colorout)
+ColorOut()
+options("styler.addins_style_transformer" = "biocthis::bioc_style()")
+
+theme_set(theme_bw()+theme(axis.text.x = element_text(size = 14), axis.title.x = element_text(size = 16), axis.text.y = element_text(size = 14), axis.title.y = element_text(size =16), plot.title = element_text(size = 20,hjust=0.5), strip.text = element_text(size=18), legend.text = element_text(size=10), legend.title = element_text(size=11,hjust=0.5)))
+```
+
+we'll do this with two sets of data clustered using the top 1310 SVGs and k=28: walktrap clusters (unsupervised, spatially unaware) and bayesspace clusters with same.
+
+```{r}
+splc.wt <- readRDS("processed/ch13/1310svgs_k28walktrap_clustered_spe.RDS")
+splc.bs <- readRDS("processed/ch13/1310svgs_k28_bayesspace.RDS")
+```
+
+the function findMarkers in scran is used with binomial tests (proportion of cells expressing per cluster; "This is a more stringent test than the default t-tests, and tends to select genes that are easier to interpret and validate experimentally." per osta). we also specify upregulated genes in order to identify positive markers per cluster.
+
+pheatmap is used per OSTA; rownames are set to gene names for plotting with it.
+
+```{r}
+rownames(splc.bs) <- rowData(splc.bs)$gene_name
+rownames(splc.wt) <- rowData(splc.wt)$gene_name
+
+bs.markers <- findMarkers(splc.bs,test="binom",direction="up")
+wt.markers <- findMarkers(splc.wt,test="binom",direction="up")
+
+```
+
+we are returned list objects, with each item named by the corresponding cluster.
+
+lets examine a cluster of potential interest, bs.28.
+we can pull out some top markers, of which there may be more than one per ranking in the column Top (see second line below: 2 gives us 11 genes, 5 gives 23. lets do 7 to be wild)
+```{r}
+bs28 <- bs.markers[[28]]
+bs28.plotset <- bs28[bs28$Top<=7,]
+bs28.plotset.fx <- getMarkerEffects(bs28.plotset)
+pheatmap(bs28.plotset.fx)
+```
+
+### note that our cluster of interest, 28, is NOT in the heatmap.
+
+we can also make violin plots per cluster per gene. notice this auto-defaults to logcounts.
+```{r}
+plotExpression(splc.bs,features = rownames(bs28.plotset),x="label")
+dev.off()
+```
+
+i guess that's it.
